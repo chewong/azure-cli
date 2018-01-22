@@ -34,6 +34,7 @@ class AzCli(CLI):
         from azure.cli.core.cloud import get_active_cloud
         from azure.cli.core.extensions import register_extensions
         from azure.cli.core._session import ACCOUNT, CONFIG, SESSION
+        from azure.cli.core.alias import AliasTransformer
 
         import knack.events as events
         from knack.util import ensure_dir
@@ -56,6 +57,7 @@ class AzCli(CLI):
         self.register_event(events.EVENT_INVOKER_POST_CMD_TBL_CREATE, add_id_parameters)
 
         self.progress_controller = None
+        self.alias_transformer = AliasTransformer()
 
     def refresh_request_id(self):
         """Assign a new random GUID as x-ms-client-request-id
