@@ -193,6 +193,7 @@ class AzCliCommandInvoker(CommandInvoker):
         import knack.events as events
         from knack.util import CommandResultItem, todict
 
+        args = self.cli_ctx.alias_transformer.transform(args)
         # TODO: Can't simply be invoked as an event because args are transformed
         args = _pre_command_table_create(self.cli_ctx, args)
 
