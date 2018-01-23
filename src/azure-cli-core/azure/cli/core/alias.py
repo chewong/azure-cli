@@ -7,12 +7,14 @@ import os
 import re
 
 from knack.log import get_logger
+from knack.util import CLIError
 
 from azure.cli.core._environment import get_config_dir
 
 GLOBAL_CONFIG_DIR = get_config_dir()
 ALIAS_FILE_NAME = 'alias'
 GLOBAL_ALIAS_PATH = os.path.join(GLOBAL_CONFIG_DIR, ALIAS_FILE_NAME)
+
 PLACEHOLDER_REGEX = r'\s*{\d+}'
 ENV_VAR_REGEX = r'\$[a-zA-Z][a-zA-Z0-9]*'
 
@@ -30,7 +32,7 @@ class AliasTransformer:
     def transform(self, args):
         """ Transform any aliases in args to their respective commands """
         transformed = []
-        args_iter = enumerate(args, 1)
+        args_iter = enumerate(map(str.lower, args), 1)
 
         for i, arg in args_iter:
             num_positional_args = self.count_positional_args(arg)
@@ -47,10 +49,13 @@ class AliasTransformer:
 
                 transformed += command.split()
 
-        logger.debug(
-            'Alias Transfromer: Command Arguments Transformed From %s to %s', args, transformed)
-
         transformed = self.inject_env_vars(transformed)
+
+        if transformed != args:
+            self.check_recursive_alias(transformed)
+            logger.debug(
+                'Alias Transfromer: Command Arguments Transformed From %s to %s', args, transformed)
+
         return transformed
 
     def count_positional_args(self, alias):
@@ -74,8 +79,15 @@ class AliasTransformer:
         return tuple(('{{{}}}'.format(i), arg) for i, arg in enumerate(args))
 
     def inject_env_vars(self, args):  # pylint: disable=no-self-use
+        """ Inject environment variables into the commands """
         command = ' '.join(args)
         env_vars = re.findall(ENV_VAR_REGEX, command)
         for env_var in env_vars:
             command = command.replace(env_var, os.path.expandvars(env_var))
         return command.split()
+
+    def check_recursive_alias(self, commands):
+        """ Check for any recursive alias """
+        for subcommand in commands:
+            if self.get_full_alias(subcommand):
+                raise CLIError('Potentially recursive alias: \'{}\' is referred by another alias'.format(subcommand))
