@@ -18,7 +18,6 @@ GLOBAL_ALIAS_PATH = os.path.join(GLOBAL_CONFIG_DIR, ALIAS_FILE_NAME)
 PLACEHOLDER_REGEX = r'\s*{\d+}'
 PLACEHOLDER_SPLIT_REGEX = r'\s*{0\.split\(((\'.*\')|(".*"))\)\[\d+\]}'
 ENV_VAR_REGEX = r'\$[a-zA-Z][a-zA-Z0-9]*'
-COMMAND_REGEX = r'[a-z\-]+'
 
 logger = get_logger(__name__)
 
@@ -26,81 +25,83 @@ logger = get_logger(__name__)
 class AliasTransformer:
 
     def __init__(self, reserved_commands):
-        from configparser import ConfigParser
+        from configparser import ConfigParser, DuplicateSectionError
 
-        self.alias_map = ConfigParser()
-        self.alias_map.read(GLOBAL_ALIAS_PATH)
+        self.alias_table = ConfigParser()
+        try:
+            self.alias_table.read(GLOBAL_ALIAS_PATH)
+        except DuplicateSectionError:
+            pass
+
         self.reserved_commands = reserved_commands
-        self.collision_regex = '^'
+        self.collision_regex = r'^'
+        # A cache that keeps track of which alias collided with a reserved command
         self.collision_cache = set()
-
 
     def transform(self, args):
         """ Transform any aliases in args to their respective commands """
-        transformed = []
+        transformed_commands = []
         args_iter = enumerate(map(str.lower, args), 1)
 
-        def check_collision(arg):
-            if arg[0] == '-':
-                return True
-
-            self.collision_regex += '{} '.format(arg)
+        def is_collision(arg):
+            self.collision_regex += r'{}($|\s)'.format(arg)
+            # List all the reserved commands that match the current collision regex
             collided = list(filter(re.compile(self.collision_regex).match, self.reserved_commands))
 
             if collided:
-                transformed.append(arg)
+                transformed_commands.append(arg)
                 self.collision_cache.add(arg)
                 return True
-            else:
-                self.collision_regex = self.collision_regex.replace(arg, COMMAND_REGEX)
             return False
 
         for i, arg in args_iter:
-            num_pos_args = self.count_positional_args(arg)
+            # The full alias (included placeholder, if any)
+            full_alias = self.get_full_alias(arg)
+            num_pos_args = self.count_positional_args(full_alias)
+            cmd_derived_from_alias = self.alias_table[full_alias].get(
+                'command', arg) if full_alias in self.alias_table else arg
 
             if num_pos_args == 0:
-                if check_collision(arg):
+                # Skip this iteration if we have an alias collision
+                if arg[0] != '-' and is_collision(arg):
                     continue
 
-                # Call split() because the command that the alias points to might contain spaces
-                transformed += self.alias_map[arg].get('command', arg).split() if arg in self.alias_map else [arg]
+                # Truncate the list of reserved commands
+                self.collision_regex = self.collision_regex.replace(arg, cmd_derived_from_alias)
+                self.reserved_commands = list(
+                    filter(re.compile(self.collision_regex).match, self.reserved_commands))
             else:
-                full_alias = self.get_full_alias(arg)
-                command = self.alias_map[full_alias].get('command', arg) if full_alias in self.alias_map else arg
                 # Take arguments indexed from i to i + num_pos_args and inject
                 # them as positional arguments into the command
                 for placeholder, pos_arg in self.build_pos_args_map(args[i: i + num_pos_args]):
-                    command = command.replace(placeholder, pos_arg)
-                    # Skip the next iteration because it is already consumed as a positional argument above
+                    cmd_derived_from_alias = cmd_derived_from_alias.replace(placeholder, pos_arg)
+                    # Skip the next arg because it is already consumed as a positional argument above
                     next(args_iter)
 
-                transformed += command.split()
-                break
+            # Call split() because the command that the alias points to might contain spaces
+            transformed_commands += cmd_derived_from_alias.split()
 
-        transformed = self.inject_env_vars(transformed)
+        transformed_commands = self.inject_env_vars(transformed_commands)
 
-        if transformed != args:
-            self.check_recursive_alias(transformed)
+        if transformed_commands != args:
+            self.check_recursive_alias(transformed_commands)
             logger.debug(
-                'Alias Transfromer: Command Arguments Transformed From %s to %s', args, transformed)
+                'Alias Transfromer: Command Arguments Transformed From %s to %s', args, transformed_commands)
 
-        return transformed
+        return transformed_commands
 
     def get_full_alias(self, query):
         """ Return the full alias (with the placeholders, if any) given a search query """
-        if query in self.alias_map:
+        if query in self.alias_table:
             return query
-        for section in self.alias_map.sections():
+        for section in self.alias_table.sections():
             if section.split()[0] == query:
                 return section
         return ''
 
-    def get_command_from_alias(self, alias):
-        pass
-
-    def count_positional_args(self, alias):
+    def count_positional_args(self, full_alias):
         """ Count how many positional arguments there are in an alias. """
-        return len(re.findall(PLACEHOLDER_REGEX, self.get_full_alias(alias)))
+        return len(re.findall(PLACEHOLDER_REGEX, full_alias))
 
     def build_pos_args_map(self, args):  # pylint: disable=no-self-use
         """
@@ -121,4 +122,4 @@ class AliasTransformer:
         """ Check for any recursive alias """
         for subcommand in commands:
             if subcommand not in self.collision_cache and self.get_full_alias(subcommand):
-                raise CLIError('Potentially recursive alias: \'{}\' is referred by another alias'.format(subcommand))
+                raise CLIError('Potentially recursive alias: \'{}\' is associated by another alias'.format(subcommand))
