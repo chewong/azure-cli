@@ -194,14 +194,14 @@ class AzCliCommandInvoker(CommandInvoker):
         from knack.util import CommandResultItem, todict
         from azure.cli.core.alias import AliasTransformer
 
-        alias_transformer = AliasTransformer()
-        args = alias_transformer.transform(args)
-
         # TODO: Can't simply be invoked as an event because args are transformed
         args = _pre_command_table_create(self.cli_ctx, args)
 
         self.cli_ctx.raise_event(events.EVENT_INVOKER_PRE_CMD_TBL_CREATE, args=args)
         self.commands_loader.load_command_table(args)
+
+        alias_transformer = AliasTransformer(self.commands_loader.command_table.keys())
+        args = alias_transformer.transform(args)
         command = self._rudimentary_get_command(args)
 
         try:
