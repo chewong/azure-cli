@@ -18,8 +18,12 @@ GLOBAL_ALIAS_PATH = os.path.join(GLOBAL_CONFIG_DIR, ALIAS_FILE_NAME)
 PLACEHOLDER_REGEX = r'\s*{\d+}'
 PLACEHOLDER_SPLIT_REGEX = r'\s*{\d+\.split\(((\'.*\')|(".*"))\)\[\d+\]}'
 ENV_VAR_REGEX = r'\$[a-zA-Z][a-zA-Z0-9]*'
+QUOTES_REGEX = r'^[\'|\"]|[\'|\"]$'
 
 COLLISION_WARNING = '\'%s\' is currently mapped to \'%s\' in alias configuration.'
+INCONSISTENT_INDEXING_ERROR = 'Inconsistent placeholder indexing in alias command.'
+RECURSIVE_ALIAS_ERROR = 'Potentially recursive alias: \'{}\' is associated by another alias'
+DEBUG_MSG = 'Alias Transfromer: Took %.3f seconds to transform %s to %s'
 
 logger = get_logger(__name__)
 
@@ -36,18 +40,25 @@ class AliasTransformer:
             pass
 
         self.reserved_commands = reserved_commands
-        # A regex that detects if we have
         self.collision_regex = r'^'
-        # A cache that keeps track of which alias collided with a reserved command
+        # A cache that keeps track of which alias collided with a reserved command to
+        # prevent outputting accidental recursive alias error message
         self.collision_cache = set()
 
     def transform(self, args):
         """ Transform any aliases in args to their respective commands """
+        import timeit
+
+        start_time = timeit.default_timer()
         transformed_commands = []
-        args_iter = enumerate(map(str.lower, args), 1)
+        # Remove extra quotes from arguments
+        args_iter = enumerate(args, 1)
 
         def is_collision(alias):
-            """ Check if a given alias collides with a reserved command """
+            """
+            Check if a given alias collides with a reserved command.
+            If there is a coliision, directly
+            """
             # Collision in this context is defined as an alias containing the exact same characters as a
             # reserved command in the same level. For example:
             # level 0 | level 1 | level 2 | ...
@@ -61,7 +72,7 @@ class AliasTransformer:
             # collision. Simply append alias to self.collision_regex and check if there are commands in
             # self.reserved_words that prefix with self.collision_regex. If the result set is empty, we can conclude
             # that there is no collision occurred (for now).
-            self.collision_regex += r'{}($|\s)'.format(alias)
+            self.collision_regex += r'{}($|\s)'.format(alias.lower())
             collided = self.get_truncated_reserved_commands()
 
             if collided:
@@ -85,28 +96,29 @@ class AliasTransformer:
                 continue
 
             if num_pos_args == 0 and alias != cmd_derived_from_alias:
-                # Truncate the list of reserved commands based on newly-dervied command
-                self.collision_regex = self.collision_regex.replace(alias, cmd_derived_from_alias)
+                # Truncate the list of reserved commands based on the command derived from alias
+                self.collision_regex = self.collision_regex.replace(alias.lower(), cmd_derived_from_alias.lower())
                 self.reserved_commands = self.get_truncated_reserved_commands()
             elif num_pos_args > 0:
                 # Take arguments indexed from i to i + num_pos_args and inject
                 # them as positional arguments into the command
-                for placeholder, pos_arg in self.build_pos_args_map(args[i: i + num_pos_args]):
+                for placeholder, pos_arg in self.pos_args_iter(args, i, num_pos_args):
                     if placeholder not in cmd_derived_from_alias:
-                        raise CLIError('Inconsistent placeholder indexing in alias command.')
+                        raise CLIError(INCONSISTENT_INDEXING_ERROR)
                     cmd_derived_from_alias = cmd_derived_from_alias.replace(placeholder, pos_arg)
                     # Skip the next arg because it has been already consumed as a positional argument above
                     next(args_iter)
 
-            # Invoke split() because the command that the alias points to might contain spaces
+            # Invoke split() because the command derived from the alias might contain spaces
             transformed_commands += cmd_derived_from_alias.split()
 
-        transformed_commands = self.inject_env_vars(transformed_commands)
+        transformed_commands = self.post_transform(transformed_commands)
 
         if transformed_commands != args:
             self.check_recursive_alias(transformed_commands)
-            logger.debug(
-                'Alias Transfromer: Command Arguments Transformed From %s to %s', args, transformed_commands)
+
+        elapsed_time = timeit.default_timer() - start_time
+        logger.debug(DEBUG_MSG, elapsed_time, args, transformed_commands)
 
         return transformed_commands
 
@@ -123,26 +135,47 @@ class AliasTransformer:
         """ Count how many positional arguments there are in an alias. """
         return len(re.findall(PLACEHOLDER_REGEX, full_alias))
 
-    def build_pos_args_map(self, args):  # pylint: disable=no-self-use
+    def pos_args_iter(self, args, start_index, num_pos_args):  # pylint: disable=no-self-use
         """
-        Build and return a tuple of tuples ([0], [1]) where the [0] is the positional argument
-        placeholder and [1] is the argument value. e.g. (('{0}', pos_arg_1), ('{1}', pos_arg_2) ... )
+        Generate an tuple iterator ([0], [1]) where the [0] is the positional argument
+        placeholder and [1] is the argument value. e.g. ('{0}', pos_arg_1) -> ('{1}', pos_arg_2) -> ...
         """
-        return tuple(('{{{}}}'.format(i), arg) for i, arg in enumerate(args))
+        pos_args = args[start_index: start_index + num_pos_args]
+        if len(pos_args) != num_pos_args:
+            raise CLIError(INCONSISTENT_INDEXING_ERROR)
 
-    def inject_env_vars(self, args):  # pylint: disable=no-self-use
-        """ Inject environment variables into the commands """
-        command = ' '.join(args)
-        env_vars = re.findall(ENV_VAR_REGEX, command)
-        for env_var in env_vars:
-            command = command.replace(env_var, os.path.expandvars(env_var))
-        return command.split()
+        for i, pos_arg in enumerate(pos_args):
+            yield ('{{{}}}'.format(i), pos_arg)
+
+    def post_transform(self, args):  # pylint: disable=no-self-use
+        """
+        Inject environment variables and remove leading and trailing quotes
+        after transforming alias to commands
+        """
+        def inject_env_vars(arg):
+            """ Inject environment variables into the commands """
+            env_vars = re.findall(ENV_VAR_REGEX, arg)
+            for env_var in env_vars:
+                arg = arg.replace(env_var, os.path.expandvars(env_var))
+            return arg
+
+        def remove_leading_trailing_quotes(arg):
+            """ Remove leading and trailing quotes due to a bug related to JMESPath query """
+            return re.sub(QUOTES_REGEX, '', arg)
+
+        post_transform_commands = []
+        for arg in args:
+            post_transform_commands.append(
+                inject_env_vars(
+                    remove_leading_trailing_quotes(arg)))
+
+        return post_transform_commands
 
     def check_recursive_alias(self, commands):
         """ Check for any recursive alias """
         for subcommand in commands:
             if subcommand not in self.collision_cache and self.get_full_alias(subcommand):
-                raise CLIError('Potentially recursive alias: \'{}\' is associated by another alias'.format(subcommand))
+                raise CLIError(RECURSIVE_ALIAS_ERROR.format(subcommand))
 
     def get_truncated_reserved_commands(self):
         """ List all the reserved commands where their prefix is the same as the current collision regex """
