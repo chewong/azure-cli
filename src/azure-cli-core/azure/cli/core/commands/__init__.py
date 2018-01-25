@@ -189,7 +189,7 @@ class AzCliCommand(CLICommand):
 # pylint: disable=too-few-public-methods
 class AzCliCommandInvoker(CommandInvoker):
 
-    # pylint: disable=too-many-statements
+    # pylint: disable=too-many-statements,too-many-locals
     def execute(self, args):
         import knack.events as events
         from knack.util import CommandResultItem, todict

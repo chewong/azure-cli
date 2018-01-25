@@ -16,8 +16,10 @@ ALIAS_FILE_NAME = 'alias'
 GLOBAL_ALIAS_PATH = os.path.join(GLOBAL_CONFIG_DIR, ALIAS_FILE_NAME)
 
 PLACEHOLDER_REGEX = r'\s*{\d+}'
-PLACEHOLDER_SPLIT_REGEX = r'\s*{0\.split\(((\'.*\')|(".*"))\)\[\d+\]}'
+PLACEHOLDER_SPLIT_REGEX = r'\s*{\d+\.split\(((\'.*\')|(".*"))\)\[\d+\]}'
 ENV_VAR_REGEX = r'\$[a-zA-Z][a-zA-Z0-9]*'
+
+COLLISION_WARNING = '\'%s\' is currently mapped to \'%s\' in alias configuration.'
 
 logger = get_logger(__name__)
 
@@ -34,6 +36,7 @@ class AliasTransformer:
             pass
 
         self.reserved_commands = reserved_commands
+        # A regex that detects if we have
         self.collision_regex = r'^'
         # A cache that keeps track of which alias collided with a reserved command
         self.collision_cache = set()
@@ -43,42 +46,59 @@ class AliasTransformer:
         transformed_commands = []
         args_iter = enumerate(map(str.lower, args), 1)
 
-        def is_collision(arg):
-            self.collision_regex += r'{}($|\s)'.format(arg)
-            # List all the reserved commands that match the current collision regex
-            collided = list(filter(re.compile(self.collision_regex).match, self.reserved_commands))
+        def is_collision(alias):
+            """ Check if a given alias collides with a reserved command """
+            # Collision in this context is defined as an alias containing the exact same characters as a
+            # reserved command in the same level. For example:
+            # level 0 | level 1 | level 2 | ...
+            #    az       vm       create   ...
+            # If a user defined an alias [vm]->[account list], and typed 'az vm', there is a collision because 'vm' in
+            # 'az vm' is in level 1 and 'vm' itself is a level-1-reserved word. However, if the alias is [vm]->[list],
+            # 'az account vm' would translate to 'az account list' because vm is not a level-2-reserved word.
+            # However, we do not encourage customers to define alias that contains reserved words
+
+            # self.collision_regex is an regex that we keep building throughout transform(), which checks for
+            # collision. Simply append alias to self.collision_regex and check if there are commands in
+            # self.reserved_words that prefix with self.collision_regex. If the result set is empty, we can conclude
+            # that there is no collision occurred (for now).
+            self.collision_regex += r'{}($|\s)'.format(alias)
+            collided = self.get_truncated_reserved_commands()
 
             if collided:
-                transformed_commands.append(arg)
-                self.collision_cache.add(arg)
+                self.collision_cache.add(alias)
+                self.reserved_commands = collided
                 return True
             return False
 
-        for i, arg in args_iter:
-            # The full alias (included placeholder, if any)
-            full_alias = self.get_full_alias(arg)
+        for i, alias in args_iter:
+            # Full alias is an alias plus any placeholder
+            full_alias = self.get_full_alias(alias)
             num_pos_args = self.count_positional_args(full_alias)
             cmd_derived_from_alias = self.alias_table[full_alias].get(
-                'command', arg) if full_alias in self.alias_table else arg
+                'command', alias) if full_alias in self.alias_table else alias
 
-            if num_pos_args == 0:
-                # Skip this iteration if we have an alias collision
-                if arg[0] != '-' and is_collision(arg):
-                    continue
+            # If we have an alias collision, DO NOT transform it and simply append it to transformed_commands
+            if alias[0] != '-' and is_collision(alias):
+                transformed_commands.append(alias)
+                if alias != cmd_derived_from_alias:
+                    logger.warning(COLLISION_WARNING, alias, cmd_derived_from_alias)
+                continue
 
-                # Truncate the list of reserved commands
-                self.collision_regex = self.collision_regex.replace(arg, cmd_derived_from_alias)
-                self.reserved_commands = list(
-                    filter(re.compile(self.collision_regex).match, self.reserved_commands))
-            else:
+            if num_pos_args == 0 and alias != cmd_derived_from_alias:
+                # Truncate the list of reserved commands based on newly-dervied command
+                self.collision_regex = self.collision_regex.replace(alias, cmd_derived_from_alias)
+                self.reserved_commands = self.get_truncated_reserved_commands()
+            elif num_pos_args > 0:
                 # Take arguments indexed from i to i + num_pos_args and inject
                 # them as positional arguments into the command
                 for placeholder, pos_arg in self.build_pos_args_map(args[i: i + num_pos_args]):
+                    if placeholder not in cmd_derived_from_alias:
+                        raise CLIError('Inconsistent placeholder indexing in alias command.')
                     cmd_derived_from_alias = cmd_derived_from_alias.replace(placeholder, pos_arg)
-                    # Skip the next arg because it is already consumed as a positional argument above
+                    # Skip the next arg because it has been already consumed as a positional argument above
                     next(args_iter)
 
-            # Call split() because the command that the alias points to might contain spaces
+            # Invoke split() because the command that the alias points to might contain spaces
             transformed_commands += cmd_derived_from_alias.split()
 
         transformed_commands = self.inject_env_vars(transformed_commands)
@@ -99,7 +119,7 @@ class AliasTransformer:
                 return section
         return ''
 
-    def count_positional_args(self, full_alias):
+    def count_positional_args(self, full_alias):  # pylint: disable=no-self-use
         """ Count how many positional arguments there are in an alias. """
         return len(re.findall(PLACEHOLDER_REGEX, full_alias))
 
@@ -123,3 +143,7 @@ class AliasTransformer:
         for subcommand in commands:
             if subcommand not in self.collision_cache and self.get_full_alias(subcommand):
                 raise CLIError('Potentially recursive alias: \'{}\' is associated by another alias'.format(subcommand))
+
+    def get_truncated_reserved_commands(self):
+        """ List all the reserved commands where their prefix is the same as the current collision regex """
+        return list(filter(re.compile(self.collision_regex).match, self.reserved_commands))
