@@ -188,16 +188,20 @@ class AzCliCommand(CLICommand):
 # pylint: disable=too-few-public-methods
 class AzCliCommandInvoker(CommandInvoker):
 
-    # pylint: disable=too-many-statements
+    # pylint: disable=too-many-statements,too-many-locals
     def execute(self, args):
         import knack.events as events
         from knack.util import CommandResultItem, todict
+        from azure.cli.core.alias import AliasTransformer
 
         # TODO: Can't simply be invoked as an event because args are transformed
         args = _pre_command_table_create(self.cli_ctx, args)
 
         self.cli_ctx.raise_event(events.EVENT_INVOKER_PRE_CMD_TBL_CREATE, args=args)
         self.commands_loader.load_command_table(args)
+
+        alias_transformer = AliasTransformer(self.commands_loader.command_table.keys())
+        args = alias_transformer.transform(args)
         command = self._rudimentary_get_command(args)
 
         try:
