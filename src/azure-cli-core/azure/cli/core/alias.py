@@ -57,7 +57,7 @@ class AliasTransformer:
         def is_collision(alias):
             """
             Check if a given alias collides with a reserved command.
-            If there is a coliision, directly
+            Return True if there is a collision.
             """
             # Collision in this context is defined as an alias containing the exact same characters as a
             # reserved command in the same level. For example:
@@ -82,7 +82,6 @@ class AliasTransformer:
             return False
 
         for i, alias in args_iter:
-            # Full alias is an alias plus any placeholder
             full_alias = self.get_full_alias(alias)
             num_pos_args = self.count_positional_args(full_alias)
             cmd_derived_from_alias = self.alias_table[full_alias].get(
@@ -102,7 +101,7 @@ class AliasTransformer:
             elif num_pos_args > 0:
                 # Take arguments indexed from i to i + num_pos_args and inject
                 # them as positional arguments into the command
-                for placeholder, pos_arg in self.pos_args_iter(args, i, num_pos_args):
+                for placeholder, pos_arg in self.pos_args_iter(args, i, num_pos_args, cmd_derived_from_alias):
                     if placeholder not in cmd_derived_from_alias:
                         raise CLIError(INCONSISTENT_INDEXING_ERROR)
                     cmd_derived_from_alias = cmd_derived_from_alias.replace(placeholder, pos_arg)
@@ -131,17 +130,17 @@ class AliasTransformer:
                 return section
         return ''
 
-    def count_positional_args(self, full_alias):  # pylint: disable=no-self-use
-        """ Count how many positional arguments there are in an alias. """
-        return len(re.findall(PLACEHOLDER_REGEX, full_alias))
+    def count_positional_args(self, arg):  # pylint: disable=no-self-use
+        """ Count how many positional arguments ({0}, {1} ...) there are. """
+        return len(re.findall(PLACEHOLDER_REGEX, arg))
 
-    def pos_args_iter(self, args, start_index, num_pos_args):  # pylint: disable=no-self-use
+    def pos_args_iter(self, args, start_index, num_pos_args, cmd_derived_from_alias):  # pylint: disable=no-self-use
         """
         Generate an tuple iterator ([0], [1]) where the [0] is the positional argument
         placeholder and [1] is the argument value. e.g. ('{0}', pos_arg_1) -> ('{1}', pos_arg_2) -> ...
         """
         pos_args = args[start_index: start_index + num_pos_args]
-        if len(pos_args) != num_pos_args:
+        if len(pos_args) != num_pos_args or self.count_positional_args(cmd_derived_from_alias) != num_pos_args:
             raise CLIError(INCONSISTENT_INDEXING_ERROR)
 
         for i, pos_arg in enumerate(pos_args):
