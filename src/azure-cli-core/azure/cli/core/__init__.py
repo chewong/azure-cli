@@ -204,6 +204,7 @@ class MainCommandsLoader(CLICommandsLoader):
                 self.extra_argument_registry.update(loader.extra_argument_registry)
                 loader._update_command_definitions()  # pylint: disable=protected-access
 
+
 class ArgumentExtensionsLoader:
     """ Load extenions that would modify the input arguments of the CLI """
 
@@ -239,6 +240,7 @@ class ArgumentExtensionsLoader:
                     logger.debug('Loaded argument extension \'%s\'', ext_name)
             except Exception:  # pylint: disable=broad-except
                 pass
+
 
 class AzCommandsLoader(CLICommandsLoader):
 
