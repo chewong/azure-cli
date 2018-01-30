@@ -524,7 +524,8 @@ def _load_command_loader(loader, args, name, prefix):
                     # else:
                     loader.cmd_to_loader_map[cmd] = [command_loader]
     else:
-        logger.debug("Module '%s' is missing `COMMAND_LOADER_CLS` entry.", name)
+        logger.debug("Module '%s' is missing `COMMAND_LOADER_CLS` entry. %s", name,
+                     "Trying to import it with ArgumentExtensionsLoader...")
     return command_table
 
 
