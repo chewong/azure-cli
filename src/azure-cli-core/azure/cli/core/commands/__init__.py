@@ -193,16 +193,17 @@ class AzCliCommandInvoker(CommandInvoker):
     def execute(self, args):
         import knack.events as events
         from knack.util import CommandResultItem, todict
-        from azure.cli.core.alias import AliasManager
+        from azure.cli.core import ArgumentExtensionsLoader
 
         # TODO: Can't simply be invoked as an event because args are transformed
         args = _pre_command_table_create(self.cli_ctx, args)
 
         self.cli_ctx.raise_event(events.EVENT_INVOKER_PRE_CMD_TBL_CREATE, args=args)
         self.commands_loader.load_command_table(args)
-
-        alias_transformer = AliasManager(self.commands_loader.command_table.keys())
-        args = alias_transformer.transform(args)
+        arg_ext_loader = ArgumentExtensionsLoader(reserved_commands=self.commands_loader.command_table.keys(),
+                                                  args=args)
+        arg_ext_loader.load_argument_extensions()
+        args = arg_ext_loader.process()
         command = self._rudimentary_get_command(args)
 
         try:

@@ -204,6 +204,41 @@ class MainCommandsLoader(CLICommandsLoader):
                 self.extra_argument_registry.update(loader.extra_argument_registry)
                 loader._update_command_definitions()  # pylint: disable=protected-access
 
+class ArgumentExtensionsLoader:
+    """ Load extenions that would modify the input arguments of the CLI """
+
+    def __init__(self, **kwargs):
+        self.extensions = None
+        self.kwargs = kwargs
+
+    def load_argument_extensions(self):
+        self.extensions = list(ArgumentExtensionsLoader.get_argument_extensions())
+
+    def process(self):
+        args = self.kwargs.get('args', [])
+        for ext_cls in self.extensions:
+            ext_instance = ext_cls(**self.kwargs)
+            args = ext_instance.transform(args)
+        return args
+
+    @staticmethod
+    def get_argument_extensions():
+        from importlib import import_module
+        from azure.cli.core.extension import (
+            get_extension_names, get_extension_path, get_extension_modname)
+
+        extensions = get_extension_names()
+        for ext_name in extensions:
+            ext_dir = get_extension_path(ext_name)
+            try:
+                ext_mod = get_extension_modname(ext_name, ext_dir=ext_dir)
+                mod = import_module(ext_mod)
+                arg_ext_cls = getattr(mod, 'ARG_EXT_CLS', None)
+                if arg_ext_cls:
+                    yield arg_ext_cls
+                    logger.debug('Loaded argument extension \'%s\'', ext_name)
+            except Exception:  # pylint: disable=broad-except
+                pass
 
 class AzCommandsLoader(CLICommandsLoader):
 
