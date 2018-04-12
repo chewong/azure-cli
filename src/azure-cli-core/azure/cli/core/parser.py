@@ -18,6 +18,7 @@ from knack.util import CLIError
 import azure.cli.core.telemetry as telemetry
 from azure.cli.core.extension import get_extension
 from azure.cli.core.commands.events import EVENT_INVOKER_ON_TAB_COMPLETION
+from azure.cli.core.util import get_cmd_to_mod_map
 
 logger = get_logger(__name__)
 

@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------------------------
 
 from __future__ import print_function
+import os
 import sys
 import json
 import base64
@@ -12,6 +13,8 @@ import six
 
 from knack.log import get_logger
 from knack.util import CLIError, to_snake_case
+
+from azure.cli.core._environment import get_config_dir
 
 logger = get_logger(__name__)
 
@@ -252,3 +255,28 @@ def sdk_no_wait(no_wait, func, *args, **kwargs):
     if no_wait:
         kwargs.update({'raw': True, 'polling': False})
     return func(*args, **kwargs)
+
+
+def get_cmd_to_mod_map():
+    path = os.path.join(get_config_dir(), 'cmd_to_mod_map')
+    open_mode = 'r' if os.path.exists(path) else 'w'
+    with open(path, open_mode) as f:
+        try:
+            return json.loads(f.read())
+        except Exception:  # pylint: disable=broad-except
+            return {}
+
+
+def rudimentary_get_command(args):
+    # Re-implementation of https://github.com/Microsoft/knack/blob/master/knack/invocation.py#L64-L75
+    """ Rudimentary parsing to get the command """
+    nouns = []
+    for i, current in enumerate(args):
+        try:
+            if current[0] == '-':
+                break
+        except IndexError:
+            pass
+        args[i] = current.lower()
+        nouns.append(args[i])
+    return ' '.join(nouns)
