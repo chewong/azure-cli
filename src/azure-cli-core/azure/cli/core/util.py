@@ -267,16 +267,20 @@ def get_cmd_to_mod_map():
             return {}
 
 
-def rudimentary_get_command(args):
-    # Re-implementation of https://github.com/Microsoft/knack/blob/master/knack/invocation.py#L64-L75
+def rudimentary_get_command(args, command_names):
     """ Rudimentary parsing to get the command """
     nouns = []
-    for i, current in enumerate(args):
-        try:
-            if current[0] == '-':
-                break
-        except IndexError:
-            pass
-        args[i] = current.lower()
-        nouns.append(args[i])
+    for arg in args:
+        if arg[0] != '-':
+            nouns.append(arg)
+        else:
+            break
+
+    def _find_args(args):
+        search = ' '.join(args)
+        return next((x for x in command_names if x.startswith(search)), False)
+
+    # since the command name may be immediately followed by a positional arg, strip those off
+    while nouns and not _find_args(nouns):
+        del nouns[-1]
     return ' '.join(nouns)

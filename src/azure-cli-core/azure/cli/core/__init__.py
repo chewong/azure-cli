@@ -134,7 +134,7 @@ class MainCommandsLoader(CLICommandsLoader):
                 # Need all modules for displaying full az help messages / tab completion
                 modules_to_load = installed_command_modules
             else:
-                rudimentary_command = rudimentary_get_command(args)
+                rudimentary_command = rudimentary_get_command(args, cmd_to_mod_map.keys())
                 modules_to_load = set()
                 for command, module in cmd_to_mod_map.items():
                     if args and command.startswith(rudimentary_command):

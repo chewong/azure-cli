@@ -197,6 +197,7 @@ class AzCliCommandInvoker(CommandInvoker):
                                   EVENT_INVOKER_FILTER_RESULT)
         from knack.util import CommandResultItem, todict
         from azure.cli.core.commands.events import EVENT_INVOKER_PRE_CMD_TBL_TRUNCATE
+        from azure.cli.core.util import rudimentary_get_command
 
         # TODO: Can't simply be invoked as an event because args are transformed
         args = _pre_command_table_create(self.cli_ctx, args)
@@ -205,7 +206,7 @@ class AzCliCommandInvoker(CommandInvoker):
         self.commands_loader.load_command_table(args)
         self.cli_ctx.raise_event(EVENT_INVOKER_PRE_CMD_TBL_TRUNCATE,
                                  load_cmd_tbl_func=self.commands_loader.load_command_table, args=args)
-        command = self._rudimentary_get_command(args)
+        command = rudimentary_get_command(args, self.commands_loader.command_table.keys())
         telemetry.set_raw_command_name(command)
 
         try:
@@ -353,25 +354,6 @@ class AzCliCommandInvoker(CommandInvoker):
         if 'ns' in arg_list:
             kwargs['ns'] = ns
         return kwargs
-
-    def _rudimentary_get_command(self, args):  # pylint: disable=no-self-use
-        """ Rudimentary parsing to get the command """
-        nouns = []
-        command_names = self.commands_loader.command_table.keys()
-        for arg in args:
-            if arg[0] != '-':
-                nouns.append(arg)
-            else:
-                break
-
-        def _find_args(args):
-            search = ' '.join(args)
-            return next((x for x in command_names if x.startswith(search)), False)
-
-        # since the command name may be immediately followed by a positional arg, strip those off
-        while nouns and not _find_args(nouns):
-            del nouns[-1]
-        return ' '.join(nouns)
 
     def _validate_cmd_level(self, ns, cmd_validator):  # pylint: disable=no-self-use
         if cmd_validator:
