@@ -6,7 +6,6 @@
 from __future__ import print_function
 
 import sys
-import difflib
 
 import argparse
 import argcomplete
@@ -18,7 +17,6 @@ from knack.util import CLIError
 import azure.cli.core.telemetry as telemetry
 from azure.cli.core.extension import get_extension
 from azure.cli.core.commands.events import EVENT_INVOKER_ON_TAB_COMPLETION
-from azure.cli.core.util import get_cmd_to_mod_map, rudimentary_get_command
 
 logger = get_logger(__name__)
 
@@ -152,29 +150,12 @@ class AzCliCommandParser(CLICommandParser):
                                                                                                   value=value)
             telemetry.set_user_fault(error_msg)
             logger.error(error_msg)
-<<<<<<< HEAD
             candidates = difflib.get_close_matches(value, action.choices, cutoff=0.8)
             if candidates:
                 print_args = {
                     's': 's' if len(candidates) > 1 else '',
                     'verb': 'are' if len(candidates) > 1 else 'is',
                     'value': value
-=======
-            all_cmd, candidates = get_cmd_to_mod_map(), set()
-            cur_cmd_level = self.prog.count(' ')
-            # [3:] to remove 'az'
-            rudimentary_command = rudimentary_get_command(self.prog[3:], all_cmd)
-            for cmd in all_cmd:
-                cmd_split = cmd.split()
-                if cur_cmd_level < len(cmd_split) and cmd.startswith(rudimentary_command):
-                    candidates.add(cmd_split[cur_cmd_level])
-
-            corrections = difflib.get_close_matches(value, candidates, cutoff=0.7)
-            if corrections:
-                args = {
-                    's': 's' if len(corrections) > 1 else '',
-                    'is_are': 'are' if len(corrections) > 1 else 'is'
->>>>>>> 93e6ce50f... Move rudimentary_get_command to util.py
                 }
                 suggestion_msg = "\nThe most similar command{s} to '{value}' {verb}:\n".format(**print_args)
                 suggestion_msg += '\n'.join(['\t' + candidate for candidate in candidates])
