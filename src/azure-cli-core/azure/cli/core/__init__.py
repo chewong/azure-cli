@@ -7,7 +7,6 @@ from __future__ import print_function
 __version__ = "2.0.32"
 
 import os
-import json
 import sys
 import timeit
 from pkg_resources import parse_version
@@ -21,7 +20,6 @@ from knack.log import get_logger
 from knack.util import CLIError
 
 import six
-from azure.cli.core._environment import get_config_dir
 
 logger = get_logger(__name__)
 
@@ -109,10 +107,9 @@ class MainCommandsLoader(CLICommandsLoader):
             _load_module_command_loader, _load_extension_command_loader, BLACKLISTED_MODS, ExtensionCommandSource)
         from azure.cli.core.extension import (
             get_extensions, get_extension_path, get_extension_modname)
-        from azure.cli.core.util import get_cmd_to_mod_map, rudimentary_get_command
+        from azure.cli.core.util import get_cmd_to_mod_map, cache_cmd_to_mod_map_file, rudimentary_get_command
 
-        cmd_to_mod_map = get_cmd_to_mod_map()
-        reload_cmd_to_mod_map = not cmd_to_mod_map
+        cmd_to_mod_map = get_cmd_to_mod_map(args)
 
         def _update_command_table_from_modules(args):
             '''Loads command table(s)
@@ -120,6 +117,7 @@ class MainCommandsLoader(CLICommandsLoader):
             If the module is not found, all commands are loaded.
             '''
             installed_command_modules = []
+            in_tab_completion_mode = '_ARGCOMPLETE' in os.environ
             try:
                 mods_ns_pkg = import_module('azure.cli.command_modules')
                 installed_command_modules = [modname for _, modname, _ in
@@ -130,24 +128,25 @@ class MainCommandsLoader(CLICommandsLoader):
             logger.debug('Installed command modules %s', installed_command_modules)
 
             # Select which module(s) to load
-            if not args or args[0] in ['-h', '--help', 'help'] or '_ARGCOMPLETE' in os.environ or reload_cmd_to_mod_map:
+            if not cmd_to_mod_map or in_tab_completion_mode:
                 # Need all modules for displaying full az help messages / tab completion
                 modules_to_load = installed_command_modules
             else:
                 rudimentary_command = rudimentary_get_command(args, cmd_to_mod_map.keys())
                 modules_to_load = set()
                 for command, module in cmd_to_mod_map.items():
-                    if args and command.startswith(rudimentary_command):
+                    if command == rudimentary_command or command.startswith(rudimentary_command + ' '):
                         modules_to_load.add(module)
 
             cumulative_elapsed_time = 0
+            # Don't need to reload cmd_to_mod_map cache when tab completing
+            reload_cmd_to_mod_map = not in_tab_completion_mode and not cmd_to_mod_map
             for mod in [m for m in modules_to_load if m not in BLACKLISTED_MODS]:
                 try:
                     start_time = timeit.default_timer()
                     module_command_table = _load_module_command_loader(self, args, mod)
                     self.command_table.update(module_command_table)
-                    if reload_cmd_to_mod_map:
-                        cmd_to_mod_map.update({cmd: mod for cmd in list(module_command_table.keys())})
+                    cmd_to_mod_map.update({cmd: mod for cmd in list(module_command_table.keys())})
                     elapsed_time = timeit.default_timer() - start_time
                     logger.debug("Loaded module '%s' in %.3f seconds.", mod, elapsed_time)
                     cumulative_elapsed_time += elapsed_time
@@ -162,6 +161,8 @@ class MainCommandsLoader(CLICommandsLoader):
             logger.debug("Loaded all modules in %.3f seconds. "
                          "(note: there's always an overhead with the first module loaded)",
                          cumulative_elapsed_time)
+            if reload_cmd_to_mod_map:
+                cache_cmd_to_mod_map_file(cmd_to_mod_map)
 
         def _update_command_table_from_extensions(ext_suppressions):
 
@@ -231,18 +232,12 @@ class MainCommandsLoader(CLICommandsLoader):
                     res.append(sup)
             return res
 
-        def _generate_cmd_to_mod_map_file():
-            with open(os.path.join(get_config_dir(), 'cmd_to_mod_map'), 'w') as f:
-                f.write(json.dumps(cmd_to_mod_map))
-
         _update_command_table_from_modules(args)
         try:
             ext_suppressions = _get_extension_suppressions(self.loaders)
             # We always load extensions even if the appropriate module has been loaded
             # as an extension could override the commands already loaded.
             _update_command_table_from_extensions(ext_suppressions)
-            if reload_cmd_to_mod_map:
-                _generate_cmd_to_mod_map_file()
         except Exception:  # pylint: disable=broad-except
             logger.warning("Unable to load extensions. Use --debug for more information.")
             logger.debug(traceback.format_exc())

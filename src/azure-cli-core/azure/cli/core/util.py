@@ -4,9 +4,11 @@
 # --------------------------------------------------------------------------------------------
 
 from __future__ import print_function
+
 import os
 import sys
 import json
+import timeit
 import base64
 import binascii
 import six
@@ -208,7 +210,6 @@ def hash_string(value, length=16, force_lower=False):
 
 
 def in_cloud_console():
-    import os
     return os.environ.get('ACC_CLOUD', None)
 
 
@@ -228,7 +229,6 @@ DISABLE_VERIFY_VARIABLE_NAME = "AZURE_CLI_DISABLE_CONNECTION_VERIFICATION"
 
 
 def should_disable_connection_verify():
-    import os
     return bool(os.environ.get(DISABLE_VERIFY_VARIABLE_NAME))
 
 
@@ -257,17 +257,38 @@ def sdk_no_wait(no_wait, func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
-def get_cmd_to_mod_map():
+def get_cmd_to_mod_map(args):
     path = os.path.join(get_config_dir(), 'cmd_to_mod_map')
-    open_mode = 'r' if os.path.exists(path) else 'w'
+    open_mode = 'r' if os.path.exists(path) else 'w+'
     with open(path, open_mode) as f:
         try:
-            return json.loads(f.read())
+            cmd_to_mod_map = json.loads(f.read())
+            return {} if _is_cmd_to_mod_map_cache_invalid(cmd_to_mod_map, args) else cmd_to_mod_map
         except Exception:  # pylint: disable=broad-except
             return {}
 
 
-def rudimentary_get_command(args, command_names):
+def _is_cmd_to_mod_map_cache_invalid(cmd_to_mod_map, args):
+    if not args or any((arg in ['help', '--help', '-h'] for arg in args)):
+        return True
+
+    rudimentary_cmd = rudimentary_get_command(args, cmd_to_mod_map.keys(), has_positional_args=False)
+    for cmd in cmd_to_mod_map:
+        if cmd == rudimentary_cmd or cmd.startswith(rudimentary_cmd + ' '):
+            return False
+    return True
+
+
+def cache_cmd_to_mod_map_file(cmd_to_mod_map):
+    start_time = timeit.default_timer()
+    path = os.path.join(get_config_dir(), 'cmd_to_mod_map')
+    with open(path, 'w') as f:
+        f.write(json.dumps(cmd_to_mod_map))
+    logger.debug("Cached cmd_to_mod_map (%.0fKB) to %s in %.3f seconds", os.path.getsize(path) / 1024,
+                 path, timeit.default_timer() - start_time)
+
+
+def rudimentary_get_command(args, command_names, has_positional_args=True):
     """ Rudimentary parsing to get the command """
     nouns = []
     for arg in args:
@@ -275,6 +296,9 @@ def rudimentary_get_command(args, command_names):
             nouns.append(arg)
         else:
             break
+
+    if not has_positional_args:
+        return ' '.join(nouns)
 
     def _find_args(args):
         search = ' '.join(args)
