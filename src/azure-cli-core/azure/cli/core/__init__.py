@@ -128,8 +128,8 @@ class MainCommandsLoader(CLICommandsLoader):
             logger.debug('Installed command modules %s', installed_command_modules)
 
             # Select which module(s) to load
-            if not cmd_to_mod_map or in_tab_completion_mode:
-                # Need all modules for displaying full az help messages / tab completion
+            if not cmd_to_mod_map:
+                # Need all modules for displaying full az help messages
                 modules_to_load = installed_command_modules
             else:
                 rudimentary_command = rudimentary_get_command(args, cmd_to_mod_map.keys())

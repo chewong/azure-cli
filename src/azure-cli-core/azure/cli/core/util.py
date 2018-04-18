@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 CLI_PACKAGE_NAME = 'azure-cli'
 COMPONENT_PREFIX = 'azure-cli-'
-
+CMD_TO_MOD_MAP_CACHE_PATH = os.path.join(get_config_dir(), 'cmd_to_mod_map')
 
 def handle_exception(ex):
     # For error code, follow guidelines at https://docs.python.org/2/library/sys.html#sys.exit,
@@ -258,9 +258,8 @@ def sdk_no_wait(no_wait, func, *args, **kwargs):
 
 
 def get_cmd_to_mod_map(args):
-    path = os.path.join(get_config_dir(), 'cmd_to_mod_map')
-    open_mode = 'r' if os.path.exists(path) else 'w+'
-    with open(path, open_mode) as f:
+    open_mode = 'r' if os.path.exists(CMD_TO_MOD_MAP_CACHE_PATH) else 'w+'
+    with open(CMD_TO_MOD_MAP_CACHE_PATH, open_mode) as f:
         try:
             cmd_to_mod_map = json.loads(f.read())
             return {} if _is_cmd_to_mod_map_cache_invalid(cmd_to_mod_map, args) else cmd_to_mod_map
@@ -269,6 +268,11 @@ def get_cmd_to_mod_map(args):
 
 
 def _is_cmd_to_mod_map_cache_invalid(cmd_to_mod_map, args):
+    """
+    Check if the cmd_to_mod_map cache is invalid under certain conditions.
+    1) If the user is invoking commands with help
+    2) If the rudimentary command of args is not in cmd_to_mod_map
+    """
     if not args or any((arg in ['help', '--help', '-h'] for arg in args)):
         return True
 
@@ -281,11 +285,12 @@ def _is_cmd_to_mod_map_cache_invalid(cmd_to_mod_map, args):
 
 def cache_cmd_to_mod_map_file(cmd_to_mod_map):
     start_time = timeit.default_timer()
-    path = os.path.join(get_config_dir(), 'cmd_to_mod_map')
-    with open(path, 'w') as f:
+    with open(CMD_TO_MOD_MAP_CACHE_PATH, 'w') as f:
         f.write(json.dumps(cmd_to_mod_map))
-    logger.debug("Cached cmd_to_mod_map (%.0fKB) to %s in %.3f seconds", os.path.getsize(path) / 1024,
-                 path, timeit.default_timer() - start_time)
+
+    logger.debug("Cached cmd_to_mod_map (%.0fKB) to %s in %.3f seconds",
+                 os.path.getsize(CMD_TO_MOD_MAP_CACHE_PATH) / 1024, CMD_TO_MOD_MAP_CACHE_PATH,
+                 timeit.default_timer() - start_time)
 
 
 def rudimentary_get_command(args, command_names, has_positional_args=True):
