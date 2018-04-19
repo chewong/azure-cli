@@ -270,10 +270,10 @@ def get_cmd_to_mod_map(args):
 def _is_cmd_to_mod_map_cache_invalid(cmd_to_mod_map, args):
     """
     Check if the cmd_to_mod_map cache is invalid under certain conditions.
-    1) If the user is invoking commands with help
+    1) If the user is invoking az help
     2) If the rudimentary command of args is not in cmd_to_mod_map
     """
-    if not args or any((arg in ['help', '--help', '-h'] for arg in args)):
+    if not args or args[0] == 'help':
         return True
 
     rudimentary_cmd = rudimentary_get_command(args, cmd_to_mod_map.keys(), has_positional_args=False)

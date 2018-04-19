@@ -110,6 +110,8 @@ class MainCommandsLoader(CLICommandsLoader):
         from azure.cli.core.util import get_cmd_to_mod_map, cache_cmd_to_mod_map_file, rudimentary_get_command
 
         cmd_to_mod_map = get_cmd_to_mod_map(args)
+        # Don't need to reload cmd_to_mod_map cache when tab completing
+        reload_cmd_to_mod_map = ARGCOMPLETE_ENV_NAME not in os.environ and not cmd_to_mod_map
 
         def _update_command_table_from_modules(args):
             '''Loads command table(s)
@@ -117,7 +119,6 @@ class MainCommandsLoader(CLICommandsLoader):
             If the module is not found, all commands are loaded.
             '''
             installed_command_modules = []
-            in_tab_completion_mode = '_ARGCOMPLETE' in os.environ
             try:
                 mods_ns_pkg = import_module('azure.cli.command_modules')
                 installed_command_modules = [modname for _, modname, _ in
@@ -139,9 +140,8 @@ class MainCommandsLoader(CLICommandsLoader):
                         modules_to_load.add(module)
 
             cumulative_elapsed_time = 0
-            # Don't need to reload cmd_to_mod_map cache when tab completing
-            reload_cmd_to_mod_map = not in_tab_completion_mode and not cmd_to_mod_map
-            for mod in [m for m in modules_to_load if m not in BLACKLISTED_MODS]:
+            # Exclude extension here since they are always loaded in _update_command_table_from_extensions()
+            for mod in [m for m in modules_to_load if m not in BLACKLISTED_MODS and not m.startswith('azext')]:
                 try:
                     start_time = timeit.default_timer()
                     module_command_table = _load_module_command_loader(self, args, mod)
@@ -161,8 +161,6 @@ class MainCommandsLoader(CLICommandsLoader):
             logger.debug("Loaded all modules in %.3f seconds. "
                          "(note: there's always an overhead with the first module loaded)",
                          cumulative_elapsed_time)
-            if reload_cmd_to_mod_map:
-                cache_cmd_to_mod_map_file(cmd_to_mod_map)
 
         def _update_command_table_from_extensions(ext_suppressions):
 
@@ -198,6 +196,7 @@ class MainCommandsLoader(CLICommandsLoader):
                                 extension_name=ext_name,
                                 overrides_command=cmd_name in cmd_to_mod_map,
                                 preview=ext.preview)
+                            cmd_to_mod_map.update({cmd_name: ext_mod})
 
                         self.command_table.update(extension_command_table)
                         elapsed_time = timeit.default_timer() - start_time
@@ -238,6 +237,8 @@ class MainCommandsLoader(CLICommandsLoader):
             # We always load extensions even if the appropriate module has been loaded
             # as an extension could override the commands already loaded.
             _update_command_table_from_extensions(ext_suppressions)
+            if reload_cmd_to_mod_map:
+                cache_cmd_to_mod_map_file(cmd_to_mod_map)
         except Exception:  # pylint: disable=broad-except
             logger.warning("Unable to load extensions. Use --debug for more information.")
             logger.debug(traceback.format_exc())
