@@ -3,9 +3,12 @@
 Release History
 ===============
 
+2.0.16
+++++++
+* Add config option to prevent colors in log messages
+
 2.0.15
 ++++++
-
 * `sdist` is now compatible with wheel 0.31.0
 
 2.0.14

@@ -13,6 +13,7 @@ Release History
   without specifying a query.
 * Display command suggestions on error if users have typo in their commands
 * More friendly error when users type `az ''`
+* Add config option to prevent colors in log messages
 
 2.0.31
 ++++++

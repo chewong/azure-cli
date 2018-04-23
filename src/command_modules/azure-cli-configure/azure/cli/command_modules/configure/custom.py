@@ -21,7 +21,8 @@ from azure.cli.command_modules.configure._consts import (OUTPUT_LIST, LOGIN_METH
                                                          MSG_PROMPT_GLOBAL_OUTPUT,
                                                          MSG_PROMPT_LOGIN,
                                                          MSG_PROMPT_TELEMETRY,
-                                                         MSG_PROMPT_FILE_LOGGING)
+                                                         MSG_PROMPT_FILE_LOGGING,
+                                                         MSG_PROMPT_LOGGING_COLORS)
 from azure.cli.command_modules.configure._utils import get_default_from_config
 
 answers = {}
@@ -111,6 +112,7 @@ def _handle_global_configuration(config):
         answers['output_type_prompt'] = output_index
         answers['output_type_options'] = str(OUTPUT_LIST)
         enable_file_logging = prompt_y_n(MSG_PROMPT_FILE_LOGGING, default='n')
+        enable_logging_colors = prompt_y_n(MSG_PROMPT_LOGGING_COLORS, default='y')
         allow_telemetry = prompt_y_n(MSG_PROMPT_TELEMETRY, default='y')
         answers['telemetry_prompt'] = allow_telemetry
         # save the global config
@@ -125,6 +127,7 @@ def _handle_global_configuration(config):
         config.set_value('core', 'output', OUTPUT_LIST[output_index]['name'])
         config.set_value('core', 'collect_telemetry', 'yes' if allow_telemetry else 'no')
         config.set_value('logging', 'enable_log_file', 'yes' if enable_file_logging else 'no')
+        config.set_value('logging', 'colors', 'yes' if enable_logging_colors else 'no')
 
 
 def handle_configure(cmd, defaults=None):

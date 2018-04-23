@@ -23,11 +23,27 @@ omitted     Warning     Debug       Critical    Debug
 
 """
 
-from knack.log import CLILogging
+import knack.log
+from knack.log import CLILogging, _CustomStreamHandler
 
 CLI_LOGGER_NAME = 'az'
 
 
+class _NonColorizedCustomStreamHandler(_CustomStreamHandler):
+
+    def _should_enable_color(self):
+        return False
+
+
 class AzCliLogging(CLILogging):
 
-    pass
+    def _init_console_handlers(self, root_logger, cli_logger, log_level_config):
+        if self.cli_ctx.config.getboolean('logging', 'colors', fallback=True):
+            stream_handler = _CustomStreamHandler
+        else:
+            stream_handler = _NonColorizedCustomStreamHandler
+
+        root_logger.addHandler(stream_handler(log_level_config['root'],
+                                              self.console_log_format['root']))
+        cli_logger.addHandler(stream_handler(log_level_config[knack.log.CLI_LOGGER_NAME],
+                                             self.console_log_format[knack.log.CLI_LOGGER_NAME]))
